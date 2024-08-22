@@ -1,3 +1,5 @@
 node_modules
-output
 package-lock.json
+facesheet.json
+demo_cv
+.vscode

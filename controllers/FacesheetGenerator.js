@@ -1,4 +1,7 @@
-const fs = require("fs");
+const fs = require("fs").promises;
+const { randomUUID } = require("crypto");
+const { PDFDocument } = require('pdf-lib');
+
 const {
   Document,
   Packer,
@@ -12,10 +15,15 @@ const {
   BorderStyle,
   ImageRun,
 } = require("docx");
+const path = require('path');
+const PdfConverter = require("./PdfConverter");
 
 // Function to generate DOCX
-async function generateDocx(imagePath, jsonData) {
-  jsonData = JSON.parse(jsonData);
+async function generateDocx(imagePath, borderColor, tenantName, data, zipFolderName) {
+  const logo = await fs.readFile(imagePath);
+  const resumePath = data.resume_file_path;
+  delete data.resume_file_path;
+
   const doc = new Document({
     styles: {
       default: {
@@ -43,7 +51,7 @@ async function generateDocx(imagePath, jsonData) {
           new Paragraph({
             children: [
               new ImageRun({
-                data: fs.readFileSync(imagePath),
+                data: logo,
                 transformation: { width: 100, height: 100 },
               }),
             ],
@@ -55,7 +63,7 @@ async function generateDocx(imagePath, jsonData) {
           // Table
           new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
-            rows: Object.entries(jsonData).map(
+            rows: Object.entries(data).map(
               ([key, value]) =>
                 new TableRow({
                   children: [
@@ -75,22 +83,22 @@ async function generateDocx(imagePath, jsonData) {
                         top: {
                           style: BorderStyle.SINGLE,
                           size: 6,
-                          color: "000088",
+                          color: borderColor,
                         },
                         bottom: {
                           style: BorderStyle.SINGLE,
                           size: 6,
-                          color: "000088",
+                          color: borderColor,
                         },
                         left: {
                           style: BorderStyle.SINGLE,
                           size: 6,
-                          color: "000088",
+                          color: borderColor,
                         },
                         right: {
                           style: BorderStyle.SINGLE,
                           size: 6,
-                          color: "000088",
+                          color: borderColor,
                         },
                       },
                       width: { size: 50, type: WidthType.PERCENTAGE },
@@ -126,22 +134,22 @@ async function generateDocx(imagePath, jsonData) {
                         top: {
                           style: BorderStyle.SINGLE,
                           size: 6,
-                          color: "000088",
+                          color: borderColor,
                         },
                         bottom: {
                           style: BorderStyle.SINGLE,
                           size: 6,
-                          color: "000088",
+                          color: borderColor,
                         },
                         left: {
                           style: BorderStyle.SINGLE,
                           size: 6,
-                          color: "000088",
+                          color: borderColor,
                         },
                         right: {
                           style: BorderStyle.SINGLE,
                           size: 6,
-                          color: "000088",
+                          color: borderColor,
                         },
                       },
                       width: { size: 50, type: WidthType.PERCENTAGE },
@@ -183,7 +191,7 @@ async function generateDocx(imagePath, jsonData) {
           new Paragraph({
             children: [
               new TextRun({
-                text: "Powered by Corporate Resources",
+                text: `Powered by ${tenantName}`,
                 size: 12,
                 bold: true,
                 color: "808080",
@@ -198,8 +206,39 @@ async function generateDocx(imagePath, jsonData) {
 
   // Create and save the document
   const buffer = await Packer.toBuffer(doc);
-  fs.writeFileSync("output11.docx", buffer);
-  console.log("Document created successfully");
+  const randomFileName = randomUUID();
+  const docPath = path.join(__dirname, '../output', `${randomFileName}.docx`);
+  await fs.writeFile(docPath, buffer);
+  const facesheet = await PdfConverter(docPath);
+  const resume = await PdfConverter(resumePath);
+
+  const convertedPath = await mergePdf([facesheet, resume], zipFolderName);
+  await fs.rm(facesheet, {force: true});
+  await fs.rm(resume, {force: true});
+  await fs.rm(docPath, {force: true});
+  return convertedPath;
+}
+
+async function mergePdf(pdfPaths, zipFolderName) {
+  const mergedPdf = await PDFDocument.create();
+
+  const basePath = path.join(__dirname, `../${zipFolderName}`);
+
+  await fs.mkdir(basePath, { recursive: true });
+  
+  const facesheetPath = path.join(basePath, `${randomUUID()}.pdf`);
+
+  for (const pdfPath of pdfPaths) {
+      const pdfBytes = await fs.readFile(pdfPath);
+      const pdf = await PDFDocument.load(pdfBytes);
+      const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+      copiedPages.forEach(page => mergedPdf.addPage(page));
+  }
+
+  const mergedPdfBytes = await mergedPdf.save();
+
+  await fs.writeFile(facesheetPath, mergedPdfBytes);
+  return facesheetPath;
 }
 
 // Generate DOCX
